@@ -25,11 +25,11 @@ A real-time robotics monitoring dashboard built with **Next.js 16**, **Three.js*
 
 ## Setup
 
-### Option A — Docker (recommended for reviewers)
+### Option A — Docker (Recommended)
 No Node.js installation required. Just [install Docker](https://docs.docker.com/get-docker/).
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/DeepKalegaonkar/insight-io.git
 cd insight-io
 
 # Add assets first (see below), then:
@@ -45,7 +45,7 @@ Open **http://localhost:3000**.
 ### Option B — Node.js (for development)
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/DeepKalegaonkar/insight-io.git
 cd insight-io
 
 npm install
