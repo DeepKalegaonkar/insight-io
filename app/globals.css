@@ -1,26 +1,74 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --background: #070d14;
+  --foreground: #e2e8f0;
+  --panel-bg: #0d1825;
+  --border: #1e3a5f;
+  --accent: #00d4ff;
+  --accent-green: #22c55e;
+  --accent-amber: #f59e0b;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-mono), "Courier New", monospace;
+  overflow: hidden;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: #0d1825;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e3a5f;
+  border-radius: 2px;
+}
+
+/* Scanline overlay for camera feed */
+.scanlines::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.08) 2px,
+    rgba(0, 0, 0, 0.08) 4px
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Pulse animation for status dots */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.pulse-dot {
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+/* Fade-in animation */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+/* Panel glow border on hover */
+.panel-hover {
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.panel-hover:hover {
+  border-color: #00d4ff44;
+  box-shadow: 0 0 20px #00d4ff11;
 }

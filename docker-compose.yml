@@ -1,0 +1,11 @@
+services:
+  insight-io:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mount your local assets so no rebuild needed when swapping video/pcd files
+      - ./public/assets:/app/public/assets
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
