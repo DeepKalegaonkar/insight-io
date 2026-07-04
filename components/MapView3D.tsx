@@ -19,33 +19,58 @@ function PointCloud() {
     loader.load(
       "/assets/sample.pcd",
       (pcd) => {
-        const positions = pcd.geometry.attributes.position;
-        const count = positions.count;
-        const colors = new Float32Array(count * 3);
+        const src = pcd.geometry.attributes.position;
+        const rawCount = src.count;
+
+        // ── 1. Filter out any vertices with NaN / non-finite coordinates ──────
+        // Some PCD files (especially small test files) contain degenerate rows
+        // that cause computeBoundingBox / computeBoundingSphere to emit NaN
+        // warnings. We rebuild the position array with only clean triplets.
+        const cleanXYZ: number[] = [];
+        for (let i = 0; i < rawCount; i++) {
+          const x = src.getX(i), y = src.getY(i), z = src.getZ(i);
+          if (isFinite(x) && isFinite(y) && isFinite(z)) {
+            cleanXYZ.push(x, y, z);
+          }
+        }
+
+        const cleanCount = cleanXYZ.length / 3;
+        const posArray   = new Float32Array(cleanXYZ);
+
+        // ── 2. Z-height colour gradient (blue → red) ─────────────────────────
         let zMin = Infinity, zMax = -Infinity;
-        for (let i = 0; i < count; i++) {
-          const z = positions.getZ(i);
+        for (let i = 0; i < cleanCount; i++) {
+          const z = posArray[i * 3 + 2];
           if (z < zMin) zMin = z;
           if (z > zMax) zMax = z;
         }
-        const colorA = new THREE.Color("#c0d8e0");
-        const colorB = new THREE.Color("#ff6060");
-        for (let i = 0; i < count; i++) {
-          const z = positions.getZ(i);
+        const colorLow  = new THREE.Color("#0060ff");
+        const colorHigh = new THREE.Color("#ff2020");
+        const colors = new Float32Array(cleanCount * 3);
+        for (let i = 0; i < cleanCount; i++) {
+          const z = posArray[i * 3 + 2];
           const t = zMax > zMin ? (z - zMin) / (zMax - zMin) : 0;
-          const c = colorA.clone().lerp(colorB, t);
-          colors[i * 3] = c.r;
+          const c = colorLow.clone().lerp(colorHigh, t);
+          colors[i * 3]     = c.r;
           colors[i * 3 + 1] = c.g;
           colors[i * 3 + 2] = c.b;
         }
-        pcd.geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+
+        // ── 3. Build a fresh geometry from the clean arrays ───────────────────
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute("position", new THREE.BufferAttribute(posArray, 3));
+        geo.setAttribute("color",    new THREE.BufferAttribute(colors,   3));
+
+        // Safe bounding computations — no NaN values remain
+        geo.computeBoundingBox();
+        geo.computeBoundingSphere();
 
         const material = new THREE.PointsMaterial({
           size: 0.03,
           vertexColors: true,
           sizeAttenuation: true,
         });
-        const pts = new THREE.Points(pcd.geometry, material);
+        const pts = new THREE.Points(geo, material);
         pts.rotation.x = -Math.PI / 2;
         setPoints(pts);
         setLoaded(true);
@@ -103,7 +128,6 @@ function RobotMarker() {
 function SceneSetup() {
   const { camera } = useThree();
   useEffect(() => {
-    // Slightly elevated top-down angle matching the reference screenshots
     camera.position.set(2, 10, 6);
     camera.lookAt(0, 0, 0);
   }, [camera]);
@@ -115,7 +139,6 @@ export default function MapView3D() {
   const { theme } = useApp();
   const isDark = theme === "dark";
 
-  // Light mode: near-white floor-plan look.  Dark mode: warm map grey.
   const canvasBg   = isDark ? "#c8c8be" : "#f5f5f0";
   const cellCol    = isDark ? "#aaaaaa" : "#cccccc";
   const sectionCol = isDark ? "#888888" : "#aaaaaa";
@@ -129,9 +152,11 @@ export default function MapView3D() {
         gl={{ antialias: true, alpha: false }}
         style={{ background: canvasBg }}
       >
+        <color attach="background" args={[canvasBg]} />
         <SceneSetup />
         <ambientLight intensity={1.2} color="#ffffff" />
         <directionalLight position={[5, 10, 5]} intensity={0.6} color="#ffffff" />
+        <axesHelper args={[2]} />
 
         <Suspense fallback={null}>
           <PointCloud />

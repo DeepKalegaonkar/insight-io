@@ -2,7 +2,9 @@
 
 import { AppProvider, useApp } from "@/contexts/AppContext";
 import Sidebar from "./Sidebar";
+import TopNav from "./TopNav";
 import DashboardMain from "./DashboardMain";
+import StatusBar from "./StatusBar";
 
 function Shell() {
   const { theme } = useApp();
@@ -13,7 +15,11 @@ function Shell() {
       }`}
     >
       <Sidebar />
-      <DashboardMain />
+      <div className="flex flex-col flex-1 overflow-hidden min-w-0">
+        <TopNav />
+        <DashboardMain />
+        <StatusBar />
+      </div>
     </div>
   );
 }

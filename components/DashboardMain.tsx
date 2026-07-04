@@ -3,10 +3,13 @@
 import { useState, useRef, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { useApp } from "@/contexts/AppContext";
+import { useRobotMetrics } from "@/hooks/useRobotMetrics";
+import { useRosbridge } from "@/hooks/useRosbridge";
 import WaypointsView from "@/components/tabs/WaypointsView";
 import LocationView  from "@/components/tabs/LocationView";
 import RoutesView    from "@/components/tabs/RoutesView";
 import AnalyticsView from "@/components/tabs/AnalyticsView";
+import ProfileView   from "@/components/tabs/ProfileView";
 
 const MapView3D = dynamic(() => import("@/components/MapView3D"), {
   ssr: false,
@@ -87,33 +90,57 @@ function MapFloorPlan() {
 
 // ─── Emergency Stop ───────────────────────────────────────────────────────────
 function EmergencyStop() {
-  const [pressed, setPressed] = useState(false);
+  const { theme } = useApp();
+  const isDark = theme === "dark";
+  const { publish } = useRosbridge();
+  const [pressed, setPressed]     = useState(false);
+  // `activated` stays true until explicitly cleared — mirrors real E-stop behaviour
+  const [activated, setActivated] = useState(false);
+  const ringFill = isDark ? "#111800" : "#f1f5f9";
+
+  const handleDown = () => {
+    setPressed(true);
+    if (!activated) {
+      setActivated(true);
+      // Robot-side: subscribe to /emergency_stop (std_msgs/Bool)
+      // data=true  → cut motor power / halt all motion immediately
+      // data=false → clear E-stop (send manually or via separate UI)
+      publish("/emergency_stop", "std_msgs/Bool", { data: true });
+    }
+  };
+  const handleUp = () => setPressed(false);
+
   return (
     <button
-      onMouseDown={() => setPressed(true)}
-      onMouseUp={() => setPressed(false)}
-      onMouseLeave={() => setPressed(false)}
-      onTouchStart={() => setPressed(true)}
-      onTouchEnd={() => setPressed(false)}
+      onMouseDown={handleDown}
+      onMouseUp={handleUp}
+      onMouseLeave={handleUp}
+      onTouchStart={handleDown}
+      onTouchEnd={handleUp}
       className={`relative w-[76px] h-[76px] rounded-full select-none transition-transform duration-75 drop-shadow-xl ${
         pressed ? "scale-90" : "scale-100 hover:scale-105"
       }`}
-      title="Emergency Stop"
+      title={activated ? "E-Stop ACTIVE — robot halted" : "Emergency Stop"}
     >
       <svg viewBox="0 0 100 100" className="w-full h-full">
         <defs>
           <path id="e-top" d="M 14,50 A 36,36 0 0,1 86,50" />
           <path id="e-bot" d="M 86,50 A 36,36 0 0,1 14,50" />
         </defs>
-        <circle cx="50" cy="50" r="48" fill="#111800" stroke="#facc15" strokeWidth="4.5" />
-        <circle cx="50" cy="50" r="35" fill={pressed ? "#7f1d1d" : "#991b1b"} />
+        {/* Ring pulses amber when activated */}
+        <circle cx="50" cy="50" r="48" fill={ringFill}
+          stroke={activated ? "#f97316" : "#facc15"} strokeWidth="4.5" />
+        <circle cx="50" cy="50" r="35"
+          fill={pressed ? "#7f1d1d" : activated ? "#b91c1c" : "#991b1b"} />
         <circle cx="50" cy="50" r="29" fill="none" stroke="#ef4444" strokeWidth="1" opacity="0.4" />
         <circle cx="50" cy="50" r="11" fill="none" stroke="white" strokeWidth="2.5" />
         <line x1="50" y1="38" x2="50" y2="50" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
-        <text fill="#facc15" fontSize="7" fontWeight="bold" letterSpacing="1.8" fontFamily="monospace">
+        <text fill={activated ? "#f97316" : "#facc15"} fontSize="7" fontWeight="bold"
+          letterSpacing="1.8" fontFamily="monospace">
           <textPath href="#e-top" startOffset="50%" textAnchor="middle">EMERGENCY</textPath>
         </text>
-        <text fill="#facc15" fontSize="7" fontWeight="bold" letterSpacing="3" fontFamily="monospace">
+        <text fill={activated ? "#f97316" : "#facc15"} fontSize="7" fontWeight="bold"
+          letterSpacing="3" fontFamily="monospace">
           <textPath href="#e-bot" startOffset="50%" textAnchor="middle">STOP</textPath>
         </text>
       </svg>
@@ -122,23 +149,76 @@ function EmergencyStop() {
 }
 
 // ─── D-Pad ────────────────────────────────────────────────────────────────────
+// Velocity constants (m/s and rad/s) — tune to match your robot's limits
+const CMD_LINEAR  = 0.3;
+const CMD_ANGULAR = 0.5;
+const TWIST_STOP  = { linear: { x: 0, y: 0, z: 0 }, angular: { x: 0, y: 0, z: 0 } };
+const TWISTS = {
+  forward:  { linear: { x:  CMD_LINEAR, y: 0, z: 0 }, angular: { x: 0, y: 0, z: 0 } },
+  backward: { linear: { x: -CMD_LINEAR, y: 0, z: 0 }, angular: { x: 0, y: 0, z: 0 } },
+  left:     { linear: { x: 0, y: 0, z: 0 }, angular: { x: 0, y: 0, z:  CMD_ANGULAR } },
+  right:    { linear: { x: 0, y: 0, z: 0 }, angular: { x: 0, y: 0, z: -CMD_ANGULAR } },
+} as const;
+
 function DPad() {
-  const Btn = ({ cls, rotate, title }: { cls: string; rotate: string; title: string }) => (
-    <button title={title}
-      className={`${cls} w-7 h-7 rounded-full bg-[#1c2b3a] hover:bg-[#263d52] active:bg-[#162232] border border-[#2a3d54] flex items-center justify-center text-slate-300 hover:text-white transition-all`}>
+  const { theme } = useApp();
+  const isDark = theme === "dark";
+  const { publish } = useRosbridge();
+  // Holds the repeat-publish interval while a button is held down
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const startMove = (dir: keyof typeof TWISTS) => {
+    if (intervalRef.current) return; // already moving
+    publish("/cmd_vel", "geometry_msgs/Twist", TWISTS[dir]);
+    // Re-publish at 10 Hz so Nav2's cmd_vel timeout doesn't halt the robot
+    intervalRef.current = setInterval(() => {
+      publish("/cmd_vel", "geometry_msgs/Twist", TWISTS[dir]);
+    }, 100);
+  };
+
+  const stopMove = () => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    // Always send a zero-velocity command on release for safety
+    publish("/cmd_vel", "geometry_msgs/Twist", TWIST_STOP);
+  };
+
+  const btnBg   = isDark
+    ? "bg-[#1c2b3a] hover:bg-[#263d52] active:bg-[#162232] border-[#2a3d54] text-slate-300 hover:text-white"
+    : "bg-slate-200 hover:bg-slate-300 active:bg-slate-100 border-slate-300 text-slate-600 hover:text-slate-900";
+  const outerBg = isDark ? "bg-[#0f1a24] border-[#1c2b3a]" : "bg-slate-100 border-slate-300";
+  const innerBg = isDark ? "bg-[#0b1520] border-[#1c2b3a]" : "bg-slate-200 border-slate-300";
+
+  const Btn = ({
+    cls, rotate, title, dir,
+  }: {
+    cls: string; rotate: string; title: string; dir: keyof typeof TWISTS;
+  }) => (
+    <button
+      title={title}
+      onMouseDown={() => startMove(dir)}
+      onMouseUp={stopMove}
+      onMouseLeave={stopMove}
+      onTouchStart={() => startMove(dir)}
+      onTouchEnd={stopMove}
+      className={`${cls} w-7 h-7 rounded-full border flex items-center justify-center transition-all ${btnBg}`}
+    >
       <svg viewBox="0 0 24 24" fill="currentColor" className={`w-3 h-3 ${rotate}`}>
         <path d="M12 5l8 10H4z" />
       </svg>
     </button>
   );
+
   return (
     <div className="relative w-[88px] h-[88px]">
-      <div className="absolute inset-0 rounded-full bg-[#0f1a24] border border-[#1c2b3a]" />
-      <Btn cls="absolute top-1 left-1/2 -translate-x-1/2"   rotate=""            title="Forward"  />
-      <Btn cls="absolute bottom-1 left-1/2 -translate-x-1/2" rotate="rotate-180" title="Backward" />
-      <Btn cls="absolute left-1 top-1/2 -translate-y-1/2"   rotate="-rotate-90"  title="Left"     />
-      <Btn cls="absolute right-1 top-1/2 -translate-y-1/2"  rotate="rotate-90"   title="Right"    />
-      <div className="absolute inset-[36%] rounded-full bg-[#0b1520] border border-[#1c2b3a]" />
+      <div className={`absolute inset-0 rounded-full border ${outerBg}`} />
+      <Btn cls="absolute top-1 left-1/2 -translate-x-1/2"    rotate=""           title="Forward"  dir="forward"  />
+      <Btn cls="absolute bottom-1 left-1/2 -translate-x-1/2" rotate="rotate-180" title="Backward" dir="backward" />
+      <Btn cls="absolute left-1 top-1/2 -translate-y-1/2"    rotate="-rotate-90" title="Left"     dir="left"     />
+      <Btn cls="absolute right-1 top-1/2 -translate-y-1/2"   rotate="rotate-90"  title="Right"    dir="right"    />
+      <div className={`absolute inset-[36%] rounded-full border ${innerBg}`} />
     </div>
   );
 }
@@ -164,14 +244,29 @@ function VerticalSlider({ value, onChange }: { value: number; onChange: (v: numb
 
 // ─── Top Bar ─────────────────────────────────────────────────────────────────
 function TopBar({
-  view, toggleView, mode, setMode, isDark,
+  view, toggleView, mode, setMode, isDark, paused, onPauseToggle, onInitiate,
 }: {
   view: "camera" | "map";
   toggleView: () => void;
   mode: "auto" | "manual";
   setMode: (m: "auto" | "manual") => void;
   isDark: boolean;
+  paused: boolean;
+  onPauseToggle: () => void;
+  onInitiate: () => void;
 }) {
+  const m = useRobotMetrics();
+
+  // Derive display values from live metrics
+  const batteryLabel = `${m.battery.toFixed(0)}%`;
+  const batteryColor = m.battery < 20 ? "text-red-400" : m.battery < 35 ? "text-amber-400" : "text-green-400";
+  const signalLabel  = m.signal >= 90 ? "Strong" : m.signal >= 70 ? "Good" : "Weak";
+  const signalColor  = m.signal >= 90 ? "text-green-400" : m.signal >= 70 ? "text-amber-400" : "text-red-400";
+  const failsafeLabel = m.status === "critical" ? "Alert" : m.status === "warning" ? "Caution" : "Okay";
+  const failsafeColor = m.status === "critical" ? "text-red-400" : m.status === "warning" ? "text-amber-400" : "text-green-400";
+  const systemLabel   = m.temperature > 55 ? "Hot" : m.status === "critical" ? "Fault" : "Okay";
+  const systemColor   = m.temperature > 55 || m.status === "critical" ? "text-red-400" : m.status === "warning" ? "text-amber-400" : "text-green-400";
+
   const bar    = isDark ? "bg-[#0b0f15] border-white/5"    : "bg-white border-slate-200";
   const txt    = isDark ? "text-white/90"                  : "text-slate-900";
   const sub    = isDark ? "text-slate-500"                 : "text-slate-400";
@@ -189,34 +284,51 @@ function TopBar({
       {/* Status / Mission */}
       <div className="flex items-center gap-2 shrink-0">
         <span className={`text-[10px] uppercase tracking-wider hidden sm:inline ${sub}`}>Status:</span>
-        <span className={`text-xs font-medium whitespace-nowrap ${txt}`}>On Mission 1234</span>
-        <button title="Pause mission"
-          className={`w-6 h-6 rounded-full border flex items-center justify-center transition-colors ml-0.5 ${ring}`}>
-          <svg viewBox="0 0 24 24" fill="currentColor" className="w-2.5 h-2.5">
-            <rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" />
-          </svg>
+        <span className={`text-xs font-medium whitespace-nowrap ${txt}`}>
+          {paused ? "Mission Paused" : "On Mission 1234"}
+        </span>
+        <button
+          onClick={onPauseToggle}
+          title={paused ? "Resume mission" : "Pause mission"}
+          className={`w-6 h-6 rounded-full border flex items-center justify-center transition-colors ml-0.5 ${
+            paused
+              ? "border-amber-500/60 text-amber-400 hover:border-amber-400"
+              : ring
+          }`}
+        >
+          {paused ? (
+            /* Play icon */
+            <svg viewBox="0 0 24 24" fill="currentColor" className="w-2.5 h-2.5">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          ) : (
+            /* Pause icon */
+            <svg viewBox="0 0 24 24" fill="currentColor" className="w-2.5 h-2.5">
+              <rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" />
+            </svg>
+          )}
         </button>
       </div>
 
       {/* System indicators */}
       <div className="hidden md:flex items-center gap-2 text-[10px] shrink-0">
-        <div className="flex items-center gap-1 text-green-400">
+        <div className={`flex items-center gap-1 ${batteryColor}`}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3 h-3">
             <rect x="2" y="7" width="18" height="10" rx="2" /><path d="M20 11h2v2h-2" />
           </svg>
-          <span>100%</span>
+          <span>{batteryLabel}</span>
         </div>
         <span className={isDark ? "text-white/10" : "text-slate-200"}>|</span>
-        <div className="flex items-center gap-1 text-green-400">
+        <div className={`flex items-center gap-1 ${signalColor}`}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3 h-3">
             <path d="M1.42 9a16 16 0 0121.16 0M5 12.55a11 11 0 0114.08 0M10.54 16.1a6 6 0 012.92 0M12 20h.01" />
           </svg>
-          <span>Strong</span>
+          <span>{signalLabel}</span>
         </div>
         <span className={isDark ? "text-white/10" : "text-slate-200"}>|</span>
-        <span className={sub}>Failsafe: <span className="text-green-400">Okay</span></span>
+        <span className={sub}>Failsafe: <span className={failsafeColor}>{failsafeLabel}</span></span>
         <span className={isDark ? "text-white/10" : "text-slate-200"}>|</span>
-        <span className={sub}>System: <span className="text-green-400">Okay</span></span>
+        <span className={sub}>System: <span className={systemColor}>{systemLabel}</span></span>
       </div>
 
       {/* Centre — view label (only meaningful on dashboard tab) */}
@@ -243,7 +355,10 @@ function TopBar({
             </button>
           ))}
         </div>
-        <button className={`flex items-center gap-1.5 px-3 py-1.5 border rounded text-[11px] font-medium transition-all ${initiate}`}>
+        <button
+          onClick={onInitiate}
+          className={`flex items-center gap-1.5 px-3 py-1.5 border rounded text-[11px] font-medium transition-all ${initiate}`}
+        >
           INITIATE
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} className="w-3 h-3">
             <path d="M9 18l6-6-6-6" />
@@ -294,13 +409,40 @@ function PiPOverlay({
 
 // ─── Dashboard tab (full-bleed camera / map with all overlays) ────────────────
 function DashboardView({ isDark }: { isDark: boolean }) {
-  const [view, setView]   = useState<"camera" | "map">("camera");
-  const [mode, setMode]   = useState<"auto" | "manual">("auto");
+  const [view, setView]     = useState<"camera" | "map">("camera");
+  const [mode, setMode]     = useState<"auto" | "manual">("auto");
+  const [paused, setPaused] = useState(false);
   const toggleView = useCallback(() => setView((v) => (v === "camera" ? "map" : "camera")), []);
+
+  const { publish } = useRosbridge();
+
+  const handlePauseToggle = useCallback(() => {
+    const next = !paused;
+    setPaused(next);
+    // Robot-side: subscribe to /mission/pause (std_msgs/Bool) — true=pause, false=resume
+    publish("/mission/pause", "std_msgs/Bool", { data: next });
+  }, [paused, publish]);
+
+  const handleModeChange = useCallback((next: "auto" | "manual") => {
+    setMode(next);
+    // Robot-side: subscribe to /robot/mode (std_msgs/String) — switches Nav2 ↔ teleop
+    publish("/robot/mode", "std_msgs/String", { data: next });
+  }, [publish]);
+
+  const handleInitiate = useCallback(() => {
+    // Robot-side: subscribe to /mission/start (std_msgs/Bool) — triggers next waypoint goal
+    publish("/mission/start", "std_msgs/Bool", { data: true });
+  }, [publish]);
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden min-w-0">
-      <TopBar view={view} toggleView={toggleView} mode={mode} setMode={setMode} isDark={isDark} />
+      <TopBar
+        view={view} toggleView={toggleView}
+        mode={mode} setMode={handleModeChange}
+        isDark={isDark}
+        paused={paused} onPauseToggle={handlePauseToggle}
+        onInitiate={handleInitiate}
+      />
 
       <div className="flex-1 relative overflow-hidden">
         {/* Main view */}
@@ -346,7 +488,13 @@ function ContentView({
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden min-w-0">
-      <TopBar view="camera" toggleView={noop} mode={mode} setMode={setMode} isDark={isDark} />
+      <TopBar
+        view="camera" toggleView={noop}
+        mode={mode} setMode={setMode}
+        isDark={isDark}
+        paused={false} onPauseToggle={noop}
+        onInitiate={noop}
+      />
       <div className={`flex-1 overflow-y-auto transition-colors duration-300 ${
         isDark ? "bg-[#0d1117]" : "bg-slate-100"
       }`}>
@@ -371,6 +519,7 @@ export default function DashboardMain() {
       {activeTab === "location"  && <LocationView  />}
       {activeTab === "routes"    && <RoutesView     />}
       {activeTab === "analytics" && <AnalyticsView  />}
+      {activeTab === "profile"   && <ProfileView    />}
     </ContentView>
   );
 }
