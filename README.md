@@ -1,3 +1,7 @@
+Deep Kalegaonkar
++91 7620107811
+kalegaonkardeep@gmail.com
+
 # Insight.IO — Robotics Dashboard
 
 A real-time robotics monitoring dashboard built with **Next.js 16**, **Three.js**, and **Tailwind CSS** as part of the ERIC Robotics FSD Assignment #1.
