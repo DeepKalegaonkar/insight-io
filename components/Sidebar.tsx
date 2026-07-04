@@ -204,6 +204,40 @@ function ToggleRow({
   );
 }
 
+// ── Mobile bottom navigation bar ──────────────────────────────────────────────
+export function MobileBottomNav() {
+  const { theme, activeTab, setActiveTab } = useApp();
+  const dk = theme === "dark";
+
+  const bar    = dk ? "bg-[#0b0f15] border-white/5" : "bg-white border-slate-200";
+  const active = dk ? "text-cyan-400"                : "text-cyan-600";
+  const idle   = dk ? "text-slate-600"               : "text-slate-400";
+
+  const allItems: { key: TabKey; label: string; Icon: () => React.ReactElement }[] = [
+    ...navItems,
+    { key: "profile", label: "Profile", Icon: Icons.Person },
+  ];
+
+  return (
+    <nav
+      className={`md:hidden fixed bottom-0 inset-x-0 z-30 flex border-t h-14 transition-colors duration-300 ${bar}`}
+    >
+      {allItems.map(({ key, label, Icon }) => (
+        <button
+          key={key}
+          onClick={() => setActiveTab(key)}
+          className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors ${
+            activeTab === key ? active : idle
+          }`}
+        >
+          <Icon />
+          <span className="text-[9px] font-medium leading-none">{label}</span>
+        </button>
+      ))}
+    </nav>
+  );
+}
+
 // ── Sidebar ────────────────────────────────────────────────────────────────────
 export default function Sidebar() {
   const { theme, toggleTheme, activeTab, setActiveTab } = useApp();
@@ -219,7 +253,7 @@ export default function Sidebar() {
   return (
     <>
       <aside
-        className={`flex flex-col w-[72px] h-full border-r shrink-0 transition-colors duration-300 ${aside}`}
+        className={`hidden md:flex flex-col w-[72px] h-full border-r shrink-0 transition-colors duration-300 ${aside}`}
       >
         {/* ── ERIC ROBOTICS logo ── */}
         <div className={`flex flex-col items-center justify-center h-[60px] border-b shrink-0 gap-0.5 ${divdr}`}>

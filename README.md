@@ -29,7 +29,7 @@ A real-time robotics monitoring dashboard built with **Next.js 16**, **Three.js*
 
 ## Setup
 
-### Option A — Docker (Recommendedi)
+### Option A — Docker (Recommended)
 No Node.js installation required. Just [install Docker](https://docs.docker.com/get-docker/).
 
 ```bash
@@ -112,6 +112,25 @@ insight-io/
 
 ---
 
+## Demo
+
+### Dashboard — 3D Map View (dark)
+![Dashboard Map](demo/Screenshot%20(71).png)
+
+### Dashboard — Camera View (dark)
+![Dashboard Camera](demo/Screenshot%20(68).png)
+
+### Light Theme
+![Dashboard Light](demo/Screenshot%20(69).png)
+
+### Profile Tab
+![Profile](demo/Screenshot%20(72).png)
+
+### Mobile Layout (≤640 px)
+![Mobile](demo/image.png)
+
+---
+
 ## Architecture Decisions
 
 ### Why Next.js?
@@ -178,6 +197,7 @@ Tune `CMD_LINEAR` and `CMD_ANGULAR` in [DashboardMain.tsx](components/DashboardM
 - [x] Profile page — operator info, robot assignment, live metrics summary
 - [x] Self-hosted — `npm run dev` or `docker compose up`
 - [x] Docker — multi-stage build, assets volume-mounted for easy swap without rebuild
+- [x] Responsive layout — sidebar hidden on mobile, bottom nav shown; TopBar collapses gracefully
 - [x] Modular structure — contexts, hooks, tabs, components cleanly separated
 - [x] Clean commit history
 

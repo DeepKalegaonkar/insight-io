@@ -342,8 +342,8 @@ function TopBar({
         </button>
       </div>
 
-      {/* Right — MODE + INITIATE */}
-      <div className="flex items-center gap-2 shrink-0">
+      {/* Right — MODE + INITIATE (hidden on xs, visible sm+) */}
+      <div className="hidden sm:flex items-center gap-2 shrink-0">
         <span className={`text-[10px] uppercase tracking-wider hidden sm:inline ${sub}`}>MODE</span>
         <div className={`flex rounded overflow-hidden border text-[10px] font-medium ${modeBase}`}>
           {(["auto", "manual"] as const).map((m, i) => (
@@ -409,7 +409,7 @@ function PiPOverlay({
 
 // ─── Dashboard tab (full-bleed camera / map with all overlays) ────────────────
 function DashboardView({ isDark }: { isDark: boolean }) {
-  const [view, setView]     = useState<"camera" | "map">("camera");
+  const [view, setView]     = useState<"camera" | "map">("map");
   const [mode, setMode]     = useState<"auto" | "manual">("auto");
   const [paused, setPaused] = useState(false);
   const toggleView = useCallback(() => setView((v) => (v === "camera" ? "map" : "camera")), []);
@@ -435,7 +435,7 @@ function DashboardView({ isDark }: { isDark: boolean }) {
   }, [publish]);
 
   return (
-    <div className="flex flex-col flex-1 overflow-hidden min-w-0">
+    <div className="flex flex-col flex-1 overflow-hidden min-w-0 fade-in">
       <TopBar
         view={view} toggleView={toggleView}
         mode={mode} setMode={handleModeChange}
@@ -515,11 +515,13 @@ export default function DashboardMain() {
 
   return (
     <ContentView isDark={isDark}>
-      {activeTab === "waypoints" && <WaypointsView />}
-      {activeTab === "location"  && <LocationView  />}
-      {activeTab === "routes"    && <RoutesView     />}
-      {activeTab === "analytics" && <AnalyticsView  />}
-      {activeTab === "profile"   && <ProfileView    />}
+      <div key={activeTab} className="fade-in min-h-full">
+        {activeTab === "waypoints" && <WaypointsView />}
+        {activeTab === "location"  && <LocationView  />}
+        {activeTab === "routes"    && <RoutesView     />}
+        {activeTab === "analytics" && <AnalyticsView  />}
+        {activeTab === "profile"   && <ProfileView    />}
+      </div>
     </ContentView>
   );
 }

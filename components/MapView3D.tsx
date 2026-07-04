@@ -16,10 +16,26 @@ function PointCloud() {
 
   useEffect(() => {
     const loader = new PCDLoader();
-    loader.load(
-      "/assets/sample.pcd",
-      (pcd) => {
-        const src = pcd.geometry.attributes.position;
+
+    fetch("/assets/sample.pcd")
+      .then((res) => {
+        if (!res.ok) throw new Error("not found");
+        return res.arrayBuffer();
+      })
+      .then((buffer) => {
+        // PCDLoader.parse() is synchronous and calls computeBoundingSphere()
+        // internally on the raw (potentially NaN-containing) geometry.
+        // We suppress only that specific error for the duration of this one
+        // synchronous call, then restore immediately after.
+        const origError = console.error;
+        console.error = (...args: unknown[]) => {
+          if (typeof args[0] === "string" && args[0].includes("computeBoundingSphere")) return;
+          origError.apply(console, args);
+        };
+        const pcd = loader.parse(buffer);
+        console.error = origError;
+
+        const src = pcd.geometry.attributes.position as THREE.BufferAttribute;
         const rawCount = src.count;
 
         // ── 1. Filter out any vertices with NaN / non-finite coordinates ──────
@@ -74,10 +90,8 @@ function PointCloud() {
         pts.rotation.x = -Math.PI / 2;
         setPoints(pts);
         setLoaded(true);
-      },
-      undefined,
-      () => setError(true)
-    );
+      })
+      .catch(() => setError(true));
   }, []);
 
   useFrame((_, delta) => {
