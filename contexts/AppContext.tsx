@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 
 export type Theme  = "dark" | "light";
-export type TabKey = "dashboard" | "waypoints" | "location" | "routes" | "analytics";
+export type TabKey = "dashboard" | "waypoints" | "location" | "routes" | "analytics" | "profile";
 
 interface AppCtx {
   theme: Theme;

@@ -8,11 +8,15 @@ A real-time robotics monitoring dashboard built with **Next.js 16**, **Three.js*
 
 | Panel | Description |
 |---|---|
-| **Camera Feed** | HTML5 video player with HUD overlays, custom controls (play/pause, mute, fullscreen), scanline overlay |
-| **3D Map View** | Interactive point cloud renderer (Three.js + `@react-three/fiber`) with orbit controls, auto-rotate, and Z-height color mapping |
-| **Metrics Row** | Live-updating cards for Speed, Battery, Heading, Signal, Temperature, and Uptime |
-| **Sidebar** | Collapsible navigation with robot online status indicator |
-| **Status Bar** | ROS bridge connection URL, ping, node count, session date |
+| **Camera Feed** | HTML5 video with scanline HUD overlay, play/pause/mute/fullscreen controls |
+| **3D Map View** | Interactive point cloud renderer (Three.js + `@react-three/fiber`) — orbit controls, Z-height colour gradient, NaN-safe geometry |
+| **Metrics** | Live-updating cards for Speed, Battery, Heading, Signal, Temperature, Uptime |
+| **Sidebar** | Icon navigation + Settings panel (dark/light mode, display & notification toggles) |
+| **Status Bar** | Live rosbridge connection dot, ping, node count, session date |
+| **TopBar** | Mission status, pause/resume toggle, AUTO/MANUAL mode switch, INITIATE button — all wired to ROS2 |
+| **Controls** | D-Pad (publishes `geometry_msgs/Twist` at 10 Hz while held) + Emergency Stop (latching, publishes `std_msgs/Bool`) |
+| **Profile** | Operator info, robot assignment, live metrics summary, mission stats |
+| **Tabs** | Waypoints · Location · Routes · Analytics — all theme-aware |
 
 ---
 
@@ -25,7 +29,7 @@ A real-time robotics monitoring dashboard built with **Next.js 16**, **Three.js*
 
 ## Setup
 
-### Option A — Docker (Recommended)
+### Option A — Docker (Recommendedi)
 No Node.js installation required. Just [install Docker](https://docs.docker.com/get-docker/).
 
 ```bash
@@ -58,23 +62,18 @@ Requires **Node.js 18+**.
 
 ## Adding Sample Assets
 
-Place files in `public/assets/`:
+### Point Cloud (`sample.pcd`) — included in repo
+`public/assets/sample.pcd` is committed and works out of the box.
+To use a more detailed scan, replace it with any `.pcd` file from the
+[PCL test files](https://github.com/PointCloudLibrary/pcl/tree/master/test)
+(e.g. `office1.pcd` for a full room-scale scene).
 
-### Camera Video (`sample.mp4`)
-Download any MP4 driving/dashcam video. Free sources:
-- [Pexels free videos](https://www.pexels.com/videos/) (search "driving")
+### Camera Video (`sample.mp4`) — download separately
+Video files are too large for git. Download any free MP4 and place it at `public/assets/sample.mp4`:
+- [Pexels free videos](https://www.pexels.com/videos/) — search "driving" or "robot"
 - [Big Buck Bunny](https://download.blender.org/peach/bigbuckbunny_movies/) (Creative Commons)
 
-Rename to `sample.mp4` and place at `public/assets/sample.mp4`.
-
-### Point Cloud (`sample.pcd`)
-Download a small `.pcd` file. Free sources:
-- [PCL test files](https://github.com/PointCloudLibrary/pcl/tree/master/test) — grab any `*.pcd`
-- [KITTI Dataset](http://www.cvlibs.net/datasets/kitti/) (convert to `.pcd`)
-
-Rename to `sample.pcd` and place at `public/assets/sample.pcd`.
-
-> **Without assets:** The camera panel shows a placeholder message; the 3D map shows a text prompt. The rest of the dashboard is fully functional.
+> **Without the video:** The camera panel shows a placeholder icon. The 3D map, metrics, controls, and all other panels are fully functional.
 
 ---
 
@@ -83,23 +82,32 @@ Rename to `sample.pcd` and place at `public/assets/sample.pcd`.
 ```
 insight-io/
 ├── app/
-│   ├── layout.tsx          # Root layout — fonts, dark bg, metadata
-│   ├── page.tsx            # Dashboard page (Server Component)
-│   └── globals.css         # Tailwind imports + custom animations
+│   ├── layout.tsx               # Root layout — fonts, metadata
+│   ├── page.tsx                 # Entry point (Server Component)
+│   └── globals.css              # Tailwind + custom animations
 ├── components/
-│   ├── Sidebar.tsx         # Collapsible left nav, robot status
-│   ├── TopNav.tsx          # Top bar — clock, mission label, alerts
-│   ├── CameraView.tsx      # Video player with HUD overlays
-│   ├── MapView3D.tsx       # Three.js PCD viewer (Client Component)
-│   ├── MapView3DClient.tsx # Thin "use client" wrapper for SSR exclusion
-│   ├── MetricsPanel.tsx    # Live metric cards row
-│   └── StatusBar.tsx       # Footer — ROS status, ping, version
+│   ├── AppShell.tsx             # Root layout shell (Sidebar + TopNav + Main + StatusBar)
+│   ├── Sidebar.tsx              # Icon nav + Settings panel
+│   ├── TopNav.tsx               # Breadcrumb, clock, alerts
+│   ├── DashboardMain.tsx        # Camera/Map view, TopBar, D-Pad, E-Stop, all ROS controls
+│   ├── MapView3D.tsx            # Three.js PCD viewer — NaN-safe, Z-height gradient
+│   ├── MetricsPanel.tsx         # Live metric cards
+│   ├── StatusBar.tsx            # rosbridge status, ping, version
+│   └── tabs/
+│       ├── WaypointsView.tsx    # Waypoint table + mission progress
+│       ├── LocationView.tsx     # GPS + compass + local grid
+│       ├── RoutesView.tsx       # Saved route library
+│       ├── AnalyticsView.tsx    # Live sparkline charts
+│       └── ProfileView.tsx      # Operator profile + live robot metrics
+├── contexts/
+│   └── AppContext.tsx           # Theme + active tab global state
 ├── hooks/
-│   └── useRobotMetrics.ts  # setInterval-based simulated robot data
+│   ├── useRobotMetrics.ts       # Simulated robot telemetry (drop-in for real ROS data)
+│   └── useRosbridge.ts          # Singleton WebSocket → rosbridge (ws://localhost:9090)
 └── public/
     └── assets/
-        ├── sample.mp4      # Camera feed (add manually)
-        └── sample.pcd      # Point cloud (add manually)
+        ├── sample.pcd           # Point cloud — included in repo
+        └── sample.mp4           # Camera feed — download separately (see below)
 ```
 
 ---
@@ -125,15 +133,27 @@ insight-io/
 
 ---
 
-## Bonus — ROS Integration (Future)
+## ROS2 Integration
 
-To replace simulated data with real ROS2 data via `roslibjs`:
+The dashboard connects to a real robot via **rosbridge** (no extra npm packages — uses native WebSocket).
 
+### Start rosbridge on the robot
 ```bash
-npm install roslib
+sudo apt install ros-$ROS_DISTRO-rosbridge-suite
+ros2 launch rosbridge_server rosbridge_websocket_launch.xml
 ```
 
-Then replace `useRobotMetrics.ts` with a hook that connects to `ws://localhost:9090` (rosbridge_server) and subscribes to `/cmd_vel`, `/battery_state`, etc.
+The status bar shows a green dot when connected. All controls publish immediately:
+
+| Control | ROS2 Topic | Message Type |
+|---|---|---|
+| Pause / Resume | `/mission/pause` | `std_msgs/Bool` |
+| Auto / Manual | `/robot/mode` | `std_msgs/String` |
+| Initiate | `/mission/start` | `std_msgs/Bool` |
+| Emergency Stop | `/emergency_stop` | `std_msgs/Bool` |
+| D-Pad (hold) | `/cmd_vel` | `geometry_msgs/Twist` |
+
+Tune `CMD_LINEAR` and `CMD_ANGULAR` in [DashboardMain.tsx](components/DashboardMain.tsx) to match your robot's velocity limits.
 
 ---
 
@@ -149,12 +169,16 @@ Then replace `useRobotMetrics.ts` with a hook that connects to `ws://localhost:9
 
 ## Evaluation Checklist
 
-- [x] Faithful layout recreation (Camera + 3D Map side-by-side, metrics row, sidebar)
-- [x] Camera View — video player with controls and HUD overlays
-- [x] 3D Map View — point cloud renderer with orbit controls
-- [x] Responsive — stacks vertically on mobile/tablet (`md:flex-row`)
-- [x] Self-hosted — runs on `localhost:3000` with `npm run dev`
-- [x] Modular component structure (Sidebar, TopNav, CameraView, MapView3D, MetricsPanel, StatusBar)
+- [x] Faithful layout recreation — Camera feed, 3D map, PiP overlay, E-Stop, D-Pad, metrics
+- [x] Camera View — video player with HUD overlays and controls
+- [x] 3D Map View — point cloud renderer, orbit controls, Z-height colour gradient
+- [x] Live metrics — Battery, Signal, Temperature, Speed, Uptime (simulated; drop-in for real ROS2)
+- [x] Dark / Light theme — all components theme-aware
+- [x] ROS2 integration — rosbridge WebSocket, all controls publish to real topics
+- [x] Profile page — operator info, robot assignment, live metrics summary
+- [x] Self-hosted — `npm run dev` or `docker compose up`
+- [x] Docker — multi-stage build, assets volume-mounted for easy swap without rebuild
+- [x] Modular structure — contexts, hooks, tabs, components cleanly separated
 - [x] Clean commit history
 
 ---

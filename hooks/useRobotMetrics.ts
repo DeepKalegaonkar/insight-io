@@ -1,15 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export interface RobotMetrics {
-  speed: number;         // m/s
-  battery: number;       // %
-  heading: number;       // degrees
-  altitude: number;      // m
-  signal: number;        // %
-  temperature: number;   // °C
-  uptime: string;        // HH:MM:SS
+  speed: number;        // m/s
+  battery: number;      // %
+  heading: number;      // degrees
+  altitude: number;     // m
+  signal: number;       // %
+  temperature: number;  // °C
+  uptime: string;       // HH:MM:SS
   status: "nominal" | "warning" | "critical";
 }
 
@@ -25,7 +25,10 @@ function formatUptime(seconds: number) {
 }
 
 export function useRobotMetrics(intervalMs = 2000): RobotMetrics {
-  const [uptimeSeconds, setUptimeSeconds] = useState(14580); // ~4h running
+  // Refs so interval callbacks always read the latest value without being in deps
+  const uptimeRef  = useRef(14580); // ~4 h 03 m session start
+  const batteryRef = useRef(78);
+
   const [metrics, setMetrics] = useState<RobotMetrics>({
     speed: 1.4,
     battery: 78,
@@ -38,33 +41,37 @@ export function useRobotMetrics(intervalMs = 2000): RobotMetrics {
   });
 
   useEffect(() => {
+    // Tick uptime every second — stored in ref, no re-render
     const uptimeId = setInterval(() => {
-      setUptimeSeconds((prev) => prev + 1);
+      uptimeRef.current += 1;
     }, 1000);
 
+    // Pulse metrics every intervalMs
     const metricsId = setInterval(() => {
-      setMetrics((prev) => {
-        const battery = parseFloat(Math.max(0, prev.battery - randomBetween(0, 0.2)).toFixed(1));
-        const status: RobotMetrics["status"] =
-          battery < 20 ? "critical" : battery < 35 ? "warning" : "nominal";
-        return {
-          speed: randomBetween(0.8, 2.1),
-          battery,
-          heading: parseFloat(((prev.heading + randomBetween(-3, 3)) % 360).toFixed(1)),
-          altitude: randomBetween(0.28, 0.38),
-          signal: randomBetween(88, 99, 0),
-          temperature: randomBetween(40, 48),
-          uptime: formatUptime(uptimeSeconds),
-          status,
-        };
-      });
+      batteryRef.current = parseFloat(
+        Math.max(0, batteryRef.current - randomBetween(0, 0.2)).toFixed(1)
+      );
+      const battery = batteryRef.current;
+      const status: RobotMetrics["status"] =
+        battery < 20 ? "critical" : battery < 35 ? "warning" : "nominal";
+
+      setMetrics((prev) => ({
+        speed: randomBetween(0.8, 2.1),
+        battery,
+        heading: parseFloat(((prev.heading + randomBetween(-3, 3)) % 360).toFixed(1)),
+        altitude: randomBetween(0.28, 0.38),
+        signal: randomBetween(88, 99, 0),
+        temperature: randomBetween(40, 48),
+        uptime: formatUptime(uptimeRef.current),
+        status,
+      }));
     }, intervalMs);
 
     return () => {
       clearInterval(uptimeId);
       clearInterval(metricsId);
     };
-  }, [intervalMs, uptimeSeconds]);
+  }, [intervalMs]); // only re-create if caller changes the interval
 
   return metrics;
 }

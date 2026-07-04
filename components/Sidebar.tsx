@@ -266,8 +266,11 @@ export default function Sidebar() {
             <Icons.Gear />
           </button>
           <button
+            onClick={() => setActiveTab("profile")}
             title="Profile"
-            className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-150 ${idle}`}
+            className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-150 ${
+              activeTab === "profile" ? active : idle
+            }`}
           >
             <Icons.Person />
           </button>
